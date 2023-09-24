@@ -31,7 +31,8 @@ const userSettings = {
       }
       .historicalPriceChart {
         width: 100%;
-        max-width: 500px;
+        height: 100%;
+        object-fit: contain;
         border-radius: 0!important;
       }
     `;
