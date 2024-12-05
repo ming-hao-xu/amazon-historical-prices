@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name            Amazon Historical Prices
-// @version         1.0.1
+// @version         1.1.0
 // @description     Add a price history chart to Amazon product pages, powered by Keepa.
-// @author          xu-minghao317
-// @namespace       https://github/xu-minghao317
-// @homepage        https://github.com/xu-minghao317/amazon-historical-prices
+// @author          Ming-Hao Xu
+// @namespace       https://github.com/ming-hao-xu
+// @homepage        https://github.com/ming-hao-xu/amazon-historical-prices
 // @include         https://www.amazon.*/*
 // @grant           none
+// @inject-into     content
 // @license         MIT
 // ==/UserScript==
 
@@ -18,54 +19,46 @@ const userSettings = {
     chartRange: 90, // The range of the chart in days: Suggested values are 1, 2, 7, 31, 90, 365
 };
 
-(function () {
+(() => {
     "use strict";
 
     // Apply CSS styles to the chart container
     const style = document.createElement("style");
-    style.innerHTML = `
-      .historicalPriceContainer {
-        margin-top: 20px;
-        margin-bottom: 20px;
-        text-align: center;
-      }
-      .historicalPriceChart {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        border-radius: 0!important;
-      }
+    style.textContent = `
+        .historicalPriceContainer {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+            width: 100%;
+        }
+        .historicalPriceChart {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+            border-radius: 0 !important;
+        }
     `;
     document.head.appendChild(style);
 
-    function getASIN() {
-        const asinElement =
-            document.getElementById("ASIN") ||
-            document.querySelector("[data-asin]") ||
-            document.evaluate(
-                "//@data-asin",
-                document,
-                null,
-                XPathResult.FIRST_ORDERED_NODE_TYPE,
-                null
-            ).singleNodeValue;
-
-        if (!asinElement) {
-            showError("Unable to find ASIN!");
-            return null;
+    const getASIN = () => {
+        const selectors = [
+            "#ASIN",
+            "[data-asin]",
+            'input[name="ASIN"]',
+            'input[name="parentASIN"]',
+        ];
+        for (const selector of selectors) {
+            const element = document.querySelector(selector);
+            if (element) {
+                return element.value || element.getAttribute("data-asin");
+            }
         }
-        return asinElement.value || asinElement.getAttribute("data-asin");
-    }
+        console.error("Unable to find ASIN!");
+        return null;
+    };
 
-    function generateHistoricalPriceChart(asin, tld) {
-        const historicalPriceContainer = document.createElement("div");
-        historicalPriceContainer.className = "historicalPriceContainer";
-
-        const historicalPriceLink = document.createElement("a");
-        const historicalPriceChart = new Image();
-        historicalPriceChart.className = "historicalPriceChart";
-
-        const keepaCountryCode = {
+    const generateHistoricalPriceChart = (asin, tld) => {
+        const keepaCountryCodes = {
             com: "1",
             uk: "2",
             de: "3",
@@ -79,44 +72,64 @@ const userSettings = {
             br: "12",
         };
 
-        const countryCode = keepaCountryCode[tld] || "unsupported";
-
-        if (countryCode === "unsupported") {
-            showError("This country is not supported by Keepa.");
+        const countryCode = keepaCountryCodes[tld];
+        if (!countryCode) {
+            console.error("This country is not supported by Keepa.");
             return;
         }
 
+        const historicalPriceContainer = document.createElement("div");
+        historicalPriceContainer.className = "historicalPriceContainer";
+
+        const historicalPriceLink = document.createElement("a");
         historicalPriceLink.target = "_blank";
         historicalPriceLink.href = `https://keepa.com/#!product/${countryCode}-${asin}`;
+
+        const historicalPriceChart = new Image();
+        historicalPriceChart.className = "historicalPriceChart";
         historicalPriceChart.src = `https://graph.keepa.com/pricehistory.png?used=${userSettings.showUsedPrice}&asin=${asin}&domain=${tld}&amazon=${userSettings.showAmazonPrice}&new=${userSettings.showNewPrice}&range=${userSettings.chartRange}`;
 
         historicalPriceLink.appendChild(historicalPriceChart);
         historicalPriceContainer.appendChild(historicalPriceLink);
 
+        // Insert the chart into the main content area above the price
         const parentElement =
             document.getElementById("unifiedPrice_feature_div") ||
             document.getElementById("MediaMatrix") ||
-            document.querySelector(".some-other-class");
+            document.getElementById("ppd") ||
+            document.getElementById("centerCol");
 
         if (parentElement) {
-            parentElement.appendChild(historicalPriceContainer);
+            parentElement.insertBefore(
+                historicalPriceContainer,
+                parentElement.firstChild
+            );
         } else {
-            showError("Unable to find parent element to append chart!");
+            console.error("Unable to find parent element to insert chart!");
         }
-    }
+    };
 
-    function showError(message) {
-        console.error(`Amazon Historical Prices: ${message}`);
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-        const hostname = location.hostname;
-        const tld = hostname.split(".").pop();
-        const country = tld === "com" ? "com" : tld;
+    const init = () => {
+        const tld = location.hostname.split(".").pop();
         const asin = getASIN();
 
         if (asin) {
-            generateHistoricalPriceChart(asin, country);
+            generateHistoricalPriceChart(asin, tld);
+        } else {
+            const observer = new MutationObserver(() => {
+                const asin = getASIN();
+                if (asin) {
+                    generateHistoricalPriceChart(asin, tld);
+                    observer.disconnect();
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
         }
-    });
+    };
+
+    if (document.readyState !== "loading") {
+        init();
+    } else {
+        document.addEventListener("DOMContentLoaded", init);
+    }
 })();
